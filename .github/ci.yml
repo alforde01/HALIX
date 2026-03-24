@@ -1,0 +1,49 @@
+name: HALIX Assembler CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install g++
+        run: sudo apt-get install -y g++
+
+      - name: Compile assembler
+        run: g++ -std=c++17 -o halixAssembler halixAssembler.cpp
+
+      - name: Verify binary exists
+        run: ls -lh halixAssembler
+
+      - name: Run all 36 tests
+        run: bash tests/run_all_tests.sh
+
+      - name: Assemble demo program
+        run: |
+          cat > live_demo.hal << 'EOF'
+          # z = x + y; cout << z;
+          .ALLOC 3
+          x .DATA =10
+          y .DATA =3
+          z .DATA
+          .BEGIN
+              LOAD x
+              ADD  y
+              STORE z
+              WRITE z
+              HALT
+          .END
+          EOF
+          ./halixAssembler live_demo.hal
+          echo "=== live_demo.hlx ==="
+          cat live_demo.hlx
+          echo "=== live_demo.log ==="
+          cat live_demo.log
