@@ -131,6 +131,7 @@ enum class LineKind {
   DirectiveBegin,
   DirectiveEnd,
   DataDecl,
+  DirectiveBlock,
   Instruction,
   Invalid
 };
@@ -159,6 +160,11 @@ struct LineIR {
   // .DATA
   std::optional<std::string> data_name;
   std::optional<int> data_init;
+
+  // .BLOCK
+  std::optional<std::string> block_name;
+  std::optional<int> block_n;
+  std::vector<int> block_meta;
 
   // instruction
   std::optional<std::string> label_def;
@@ -320,6 +326,88 @@ static LineIR parse_line(int line_no, const std::string &raw, const Config &cfg)
         return ir;
       }
       ir.alloc_n = *v;
+      return ir;
+    }
+
+    // .BLOCK n (and optional metadata like n=lo=hi)
+    // name .BLOCK n (and optional metadata)
+    auto parse_block_spec = [&](size_t start_idx) -> bool {
+      if (toks.size() <= start_idx) {
+        ir.err("E_BLOCK_FMT", "Invalid .BLOCK syntax (expected: .BLOCK n).");
+        return false;
+      }
+
+      // Join everything after .BLOCK (or after name .BLOCK) so we can support:
+      //   3
+      //   3=7=17
+      //   3 = 7 = 17
+      //   3 =7 =17
+      std::string spec;
+      for (size_t j = start_idx; j < toks.size(); j++) spec += toks[j];
+      if (spec.empty()) {
+        ir.err("E_BLOCK_FMT", "Invalid .BLOCK syntax (expected: .BLOCK n).");
+        return false;
+      }
+
+      // Split on '='
+      std::vector<std::string> parts;
+      {
+        std::string cur;
+        for (char c : spec) {
+          if (c == '=') {
+            parts.push_back(cur);
+            cur.clear();
+          } else {
+            cur.push_back(c);
+          }
+        }
+        parts.push_back(cur);
+      }
+
+      if (parts.empty() || parts[0].empty()) {
+        ir.err("E_BLOCK_FMT", "Invalid .BLOCK size (must be a positive integer).");
+        return false;
+      }
+
+      auto count = parse_int_strict(parts[0]);
+      if (!count.has_value() || *count <= 0) {
+        ir.err("E_BLOCK_FMT", "Invalid .BLOCK size (must be a positive integer).");
+        return false;
+      }
+      if (*count > cfg.max_dmem_size) {
+        ir.err("E_BLOCK_RANGE", "Invalid .BLOCK size (exceeds supported DMem size).");
+        return false;
+      }
+
+      ir.block_n = *count;
+
+      // Optional metadata (e.g., bounds) after '='; purely informational.
+      for (size_t pi = 1; pi < parts.size(); pi++) {
+        if (parts[pi].empty()) {
+          ir.err("E_BLOCK_META", "Invalid .BLOCK metadata (empty value between '=' signs).");
+          return false;
+        }
+        auto mv = parse_int_strict(parts[pi]);
+        if (!mv.has_value()) {
+          ir.err("E_BLOCK_META", "Invalid .BLOCK metadata (expected integer).");
+          return false;
+        }
+        ir.block_meta.push_back(*mv);
+      }
+
+      return true;
+    };
+
+    if (iequals(toks[0], ".BLOCK")) {
+      ir.kind = LineKind::DirectiveBlock;
+      if (!parse_block_spec(1)) return ir;
+      return ir;
+    }
+
+    if (toks.size() >= 2 && is_ident(toks[0]) && iequals(toks[1], ".BLOCK")) {
+      ir.kind = LineKind::DirectiveBlock;
+      ir.block_name = toks[0];
+      if (!parse_block_spec(2)) return ir;
       return ir;
     }
 
@@ -533,6 +621,32 @@ static Pass1Result pass1(const std::vector<std::string> &lines, const Config &cf
       continue;
     }
 
+    if (lir.kind == LineKind::DirectiveBlock) {
+      if (state != AsmState::PreBegin) {
+        lir.err("E_BLOCK_POS", ".BLOCK is not allowed after .BEGIN.");
+        continue;
+      }
+      if (!lir.block_n.has_value()) continue; // parse_line already attached a diagnostic
+
+      int count = *lir.block_n;
+
+      int base = dmem_lc;
+
+      // Optional symbol name binds to the base address of the block.
+      if (lir.block_name.has_value()) {
+        std::string key = canon(*lir.block_name, cfg);
+        if (res.symtab.find(key) != res.symtab.end()) {
+          lir.err("E_SYM_DUP", "Duplicate symbol: " + *lir.block_name);
+          continue;
+        }
+        res.symtab.emplace(key, SymEntry{*lir.block_name, SymKind::Data, base, lir.line_no});
+      }
+
+      lir.dmem_addr = base;
+      dmem_lc += count;
+      continue;
+    }
+
     if (lir.kind == LineKind::DataDecl) {
       if (state != AsmState::PreBegin) {
         lir.err("E_DATA_POS", ".DATA is not allowed after .BEGIN.");
@@ -636,7 +750,7 @@ static Pass1Result pass1(const std::vector<std::string> &lines, const Config &cf
   if (res.dmem_size.has_value() && *res.dmem_size < res.dmem_used) {
     int attach = (alloc_idx >= 0) ? alloc_idx : static_cast<int>(res.ir.size()) - 1;
     attach_global_error(res.ir, attach, "E_DMEM_OVERFLOW",
-                        "More .DATA declarations than .ALLOC size.");
+                        "More .DATA/.BLOCK reservations than .ALLOC size.");
   }
 
   if (res.dmem_size.has_value() && *res.dmem_size > cfg.max_dmem_size) {
@@ -807,26 +921,42 @@ static void write_hll(const std::string &hll_path,
   out << "Version: " << cfg.version << "\n\n";
   out << "Addr  Word  Source\n";
 
+  auto fmt_addr2 = [&](int addr) {
+    std::ostringstream a;
+    a << std::setw(2) << std::setfill('0') << addr;
+    return a.str();
+  };
+
   for (const auto &line : p1.ir) {
-    std::string addr_field = "  ";
-    std::string word_field = "    ";
-
-    if (line.kind == LineKind::DataDecl && line.dmem_addr.has_value()) {
-      std::ostringstream a; a << std::setw(2) << std::setfill('0') << *line.dmem_addr;
-      addr_field = a.str();
-      int v = line.data_init.value_or(cfg.default_uninitialized);
-      word_field = fmt_word4_signed(v);
-    } else if (line.kind == LineKind::Instruction && line.imem_addr.has_value()) {
-      std::ostringstream a; a << std::setw(2) << std::setfill('0') << *line.imem_addr;
-      addr_field = a.str();
-      if (line.machine_word.has_value()) word_field = fmt_word4_unsigned(*line.machine_word);
-      else word_field = "????";
+    // .BLOCK reserves multiple words in DMem. Emit one listing row per reserved word.
+    if (line.kind == LineKind::DirectiveBlock && line.dmem_addr.has_value() && line.block_n.has_value()) {
+      int base = *line.dmem_addr;
+      int count = *line.block_n;
+      for (int k = 0; k < count; k++) {
+        std::string addr_field = fmt_addr2(base + k);
+        std::string word_field = fmt_word4_signed(cfg.default_uninitialized);
+        std::string src_field = (k == 0) ? line.raw_text : "";
+        out << addr_field << "   " << word_field << "  " << src_field << "\n";
+      }
     } else {
-      addr_field = "  ";
-      word_field = "    ";
-    }
+      std::string addr_field = "  ";
+      std::string word_field = "    ";
 
-    out << addr_field << "   " << word_field << "  " << line.raw_text << "\n";
+      if (line.kind == LineKind::DataDecl && line.dmem_addr.has_value()) {
+        addr_field = fmt_addr2(*line.dmem_addr);
+        int v = line.data_init.value_or(cfg.default_uninitialized);
+        word_field = fmt_word4_signed(v);
+      } else if (line.kind == LineKind::Instruction && line.imem_addr.has_value()) {
+        addr_field = fmt_addr2(*line.imem_addr);
+        if (line.machine_word.has_value()) word_field = fmt_word4_unsigned(*line.machine_word);
+        else word_field = "????";
+      } else {
+        addr_field = "  ";
+        word_field = "    ";
+      }
+
+      out << addr_field << "   " << word_field << "  " << line.raw_text << "\n";
+    }
 
     for (const auto &d : line.diags) {
       const char *sev =
