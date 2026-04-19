@@ -1,6 +1,6 @@
 # Halix Two-Pass Assembler (C++)
 
-A simple C++ implementation of a **two-pass assembler** with support for `.DATA` and `.BLOCK` directives.
+A simple C++ implementation of a **two-pass assembler** 
 
 ---
 
