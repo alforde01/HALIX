@@ -21,5 +21,5 @@ g++ -std=c++17 -O2 assembler_block_v2_tests.cpp -o assembler_tests
 
 ###  Step-4:Run Assembler
 
-./assembler_block_v2 any_inputfile.hal
+./assembler any_inputfile.hal
 ```bash
