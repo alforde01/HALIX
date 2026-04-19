@@ -4,6 +4,8 @@ A simple C++ implementation of a **two-pass assembler** with support for `.DATA`
 
 ---
 
+make sure to include the assembler_block_v2.cpp and assembler_block_v2_tests.cpp on the same directory that you are running the commands
+
 ## 🔧Step-1: Compile Assembler
 
 g++ -std=c++17 -O2 assembler_block_v2.cpp -o assembler
