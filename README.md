@@ -5,7 +5,8 @@ A simple C++ implementation of a **two-pass assembler**
 ---
 ### Step 1a: Clone This Repository in Codio
 
-git clone [use code web URL]
+In a codio terminal run:
+git clone [use code web URL in this repository]
 
 ### Step 1: Compile Assembler
 
