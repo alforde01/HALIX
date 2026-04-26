@@ -2,7 +2,7 @@
 
 A simple C++ implementation of a **two-pass assembler** 
 
-Steps for Cloning Repository from GitHub:
+Steps for Running and Cloning Repository from GitHub:
 ### Step 1a: Clone This Repository in Codio
 
 In a codio terminal run:
