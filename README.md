@@ -10,7 +10,7 @@ git clone [use code web URL in this repository]
 
 ### Step 1: Compile Assembler
 
-g++ -std=c++17 -O2 avengersassembler.cpp -o assembler
+g++ -std=c++17 -O2 avengersAssembler.cpp -o assembler
 
 ###  Step 2: Run Tests
 
