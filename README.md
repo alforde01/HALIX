@@ -2,18 +2,19 @@
 
 A simple C++ implementation of a **two-pass assembler** 
 
+Steps for Cloning Repository from GitHub:
 ### Step 1a: Clone This Repository in Codio
 
 In a codio terminal run:
 git clone [use code web URL in this repository]
 
-### Step 1: Compile Assembler
-
-g++ -std=c++17 -O2 avengersAssembler.cpp -o assembler
-
-###  Step 2: Move into the Created Folder
+###  Step 1b: Move into the Created Folder
 
 cd HALIX
+
+### Step 2: Compile Assembler
+
+g++ -std=c++17 -O2 avengersAssembler.cpp -o assembler
 
 ###  Step 3: Run Tests
 
