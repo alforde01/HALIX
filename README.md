@@ -16,14 +16,12 @@ cd HALIX
 
 g++ -std=c++17 -O2 avengersAssembler.cpp -o assembler
 
-###  Step 3: Run Tests
-
-./assembler_tests
-
-###  Step 4: Run Assembler
+###  Step 3: Run Assembler
 
 ./assembler any_inputfile.hal
 
-###  Step 5: Run Dr.Jones' emulator (halix_v25.crun) to generate '.hlt' file. 
+###  Step 4: Run Dr.Jones' emulator (halix_v25.crun) to generate '.hlt' file. 
+
+chmod 555 *.crun
 
 ./halix_v25.crun anyfile.hlx
